@@ -12,11 +12,11 @@ You need the following gems installed
 
 ####Usage: check_river.rb
    
-    ruby check_river.rb -h, --help
-    ruby check_river.rb -v, --debug
-    ruby check_river.rb -p, --elasticsearch-port, default 9200
-    ruby check_river.rb -a ,--elasticsearch-address, default 127.0.0.1
-    ruby check_river.rb -w, --warning, default nil (no warning, always critical)
-    ruby check_river.rb -c, --critical, default is 50 (sequence difference)
+    check_river.rb -h, --help
+    check_river.rb -v, --debug
+    check_river.rb -p 9200, --elasticsearch-port 9200, default 9200
+    check_river.rb -a 127.0.0.1 ,--elasticsearch-address 127.0.0.1, default 127.0.0.1
+    check_river.rb -w, --warning, default nil (no warning, always critical)
+    check_river.rb -c 50, --critical, default is 50 (sequence difference)
 
 Deploy the script on machines that has http access to elasticsearch and couchdb
