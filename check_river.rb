@@ -16,14 +16,16 @@ require 'optparse'
 #Variables
 @es_client    = ''
 @couch_client = ''
-@options      = {:es_port => 9200, :es_address => '127.0.0.1', :warning => nil, :crit => 50}
+@options      = {:es_port => 9200, :es_address => '127.0.0.1', :warning => 25, :crit => 50}
 @couches      = Array.new
 @rivers       = Array.new
 @results      = Array.new
+@version      = 120
 
 def check_river
   be_debug if @options[:debug]
   init_elastic
+  get_version
   get_rivers
   compare_seq
   output_status
@@ -40,6 +42,7 @@ def init_couch(address, port)
 end
 
 def be_debug
+  puts "Version => #{@version}"
   @options.each do |key, value|
     puts "#{key} => #{value}"
   end
@@ -62,23 +65,42 @@ def find_in_couches(type)
   end
 end
 
+def find_in_es(type)
+  puts "unknown error" && exit(3) if type.nil?
+  @rivers.each do |f|
+    f.each do |p|
+      return p if p['_type'] == type && p['_id'] == '_seq'
+    end
+  end
+end
+
 def compare_seq
-  @rivers.each_with_index do |f, index|
-    matched_couch = find_in_couches(f['_type'])
-    if f['_type'] == matched_couch['_type']
+  if @version == 9
+    @rivers.each_with_index do |f, index|
+      matched_couch = find_in_couches(f['_type'])
+      if f['_type'] == matched_couch['_type']
+        es_seq = f['_source']['couchdb']['last_seq'].to_i
+        cd_seq = couch_seq(matched_couch['_source']['couchdb']['db'],matched_couch['_source']['couchdb']['host'],matched_couch['_source']['couchdb']['port']).to_i
+        p "ES #{@couches[index]['_source']['couchdb']['db']} seq: #{es_seq}" if @options[:debug]
+        p "Couch #{@couches[index]['_source']['couchdb']['db']} seq : #{cd_seq}" if @options[:debug]
+        populate_results(es_seq, cd_seq)
+      end
+    end
+  elsif @version == 120
+    @rivers.each do |f|
+      matched_couch = find_in_couches(f['_type'])
       es_seq = f['_source']['couchdb']['last_seq'].to_i
       cd_seq = couch_seq(matched_couch['_source']['couchdb']['db'],matched_couch['_source']['couchdb']['host'],matched_couch['_source']['couchdb']['port']).to_i
-      #cd_seq = couch_seq(@couches[index]['_source']['couchdb']['db'],@couches[index]['_source']['couchdb']['host'],@couches[index]['_source']['couchdb']['port'])
-      p "ES #{@couches[index]['_source']['couchdb']['db']} seq: #{es_seq}" if @options[:debug]
-      p "Couch #{@couches[index]['_source']['couchdb']['db']} seq : #{cd_seq}" if @options[:debug]
+      p "ES seq: #{es_seq}" if @options[:debug]
+      p "Couch seq : #{cd_seq}" if @options[:debug]
       populate_results(es_seq, cd_seq)
     end
   end
 end
 
 def populate_results(es_seq, cd_seq)
-  if @options[:warning]
-    @results << 1 if es_seq-cd_seq>=@options[:warning]
+  if es_seq-cd_seq>=@options[:warning]
+    @results << 1 
   elsif es_seq-cd_seq>=@options[:crit]
     @results << 2
   else
@@ -86,21 +108,46 @@ def populate_results(es_seq, cd_seq)
   end
 end
 
-#list floating rivers
+def get_version
+  #indices changed between es/river 0.9* and 1.2*
+  if @es_client.info['version']['number'] >= '1.2.0'
+    @version = 120
+  elsif @es_client.info['version']['number'] >= '0.9'
+    @version = 9
+  end
+end
+
 def get_rivers
   rivers = @es_client.search index: '_river', q: '*'
-  #exit if no rivers
   p "no rivers found" && exit(3) if rivers['_shards']['failed'] > 0
-  #sort result
-  rivers['hits']['hits'].each do |f|
-    @couches << f if f['_id'] == '_meta'
-    @rivers << f if f['_id'] == '_seq'
-  end
-  if @options[:debug]
-     @couches.each do |f|
-      p "db => #{f['_source']['couchdb']['db']}"
-      p "host => #{f['_source']['couchdb']['host']}"
-      p "port => #{f['_source']['couchdb']['port']}"
+  if @version == 9
+    #sort result
+    rivers['hits']['hits'].each do |p|
+      if p['_id'] == '_meta'
+        @couches << p
+        if @options[:debug]
+          p "db => #{p['_source']['couchdb']['db']}"
+          p "host => #{p['_source']['couchdb']['host']}"
+          p "port => #{p['_source']['couchdb']['port']}"
+        end
+      end
+      @rivers << p if p['_id'] == '_seq'
+    end
+  elsif @version == 120
+    rivers['hits']['hits'].each do |p|
+      if p['_id'] == '_meta'
+        @couches << p 
+        if @options[:debug]
+          p "db => #{p['_source']['couchdb']['db']}"
+          p "host => #{p['_source']['couchdb']['host']}"
+          p "port => #{p['_source']['couchdb']['port']}"
+        end
+        seq = @es_client.search index: '_river', type: p['_type'], id: '_seq'
+        p "unknown error occured" && exit(3) if seq['_shards']['failed'] > 0
+        seq['hits']['hits'].each do |a|
+          @rivers << a if a['_id'] == '_seq'
+        end
+      end  
     end
   end
 end
@@ -108,10 +155,10 @@ end
 def output_status
   p @results.inspect if @options[:debug]
   if @results.include? 2
-    print "CRITICAL - ",count=@results.select {|e| e == 2}.size," rivers of #{@results.count} outdated"
+    print "CRITICAL - ",count=@results.select {|e| e == 2}.size," rivers of #{@results.count} outdated\n"
     exit(2)
   elsif @results.include? 1
-    print "WARNING - ",count=@results.select {|e| e == 1}.size," rivers of #{@results.count} floating bumpy"
+    print "WARNING - ",count=@results.select {|e| e == 1}.size," rivers of #{@results.count} floating bumpy\n"
     exit(1)
   else
     p "OK - #{@results.count} rivers floating flawlessly"
@@ -133,10 +180,10 @@ optparse = OptionParser.new do |opts|
   opts.on("-a", "--elasticsearch-address ADDRESS", "elasticsearch address, default 127.0.0.1") do |q|
     @options[:es_address] = q
   end
-  opts.on("-w", "--warning [OPT]", "warning threshold, default 0 (no warning, always critical)") do |q|
+  opts.on("-w", "--warning WARN", "warning threshold, default 25 (sequence difference)") do |q|
     @options[:warning] = q.to_i
   end
-  opts.on("-c", "--critical CRITICAL", "Critical threshold, default is 50 (sequence difference)") do |q|
+  opts.on("-c", "--critical CRITICAL", "Critical threshold, default 50 (sequence difference)") do |q|
     @options[:crit] = q.to_i
   end
 end
