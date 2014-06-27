@@ -16,7 +16,7 @@ You need the following gems installed
     check_river.rb -v, --debug
     check_river.rb -p 9200, --elasticsearch-port 9200, default 9200
     check_river.rb -a 127.0.0.1 ,--elasticsearch-address 127.0.0.1, default 127.0.0.1
-    check_river.rb -w, --warning, default nil (no warning, always critical)
-    check_river.rb -c 50, --critical, default is 50 (sequence difference)
+    check_river.rb -w 25, --warning, warning threshold, default 25 (sequence difference)
+    check_river.rb -c 50, --critical, default 50 (sequence difference)
 
 Deploy the script on machines that has http access to elasticsearch and couchdb
