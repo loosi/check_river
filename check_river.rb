@@ -38,7 +38,12 @@ end
 
 def init_couch(address, port)
   p "Connecting to couchdb #{address}:#{port}" if @options[:debug]
-  return CouchRest.new("http://#{address}:#{port}")
+  begin
+    return CouchRest.new("http://#{address}:#{port}")
+  rescue RestClient::ResourceNotFound
+    echo "Couchdb not Running or no Connection"
+    exit(2)
+  end
 end
 
 def be_debug
