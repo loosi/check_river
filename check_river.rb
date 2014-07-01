@@ -104,10 +104,11 @@ def compare_seq
 end
 
 def populate_results(es_seq, cd_seq)
-  if es_seq-cd_seq>=@options[:warning]
-    @results << 1 
-  elsif es_seq-cd_seq>=@options[:crit]
+  diff=es_seq-cd_seq
+  if diff.abs>=@options[:crit]
     @results << 2
+  elsif diff.abs>=@options[:warning]
+    @results << 1
   else
     @results << 0
   end
